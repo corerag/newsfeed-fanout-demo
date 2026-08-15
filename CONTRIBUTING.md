@@ -40,5 +40,4 @@ useful than a full spec.
 
 ## Code of conduct
 
-Be respectful and assume good faith. This is a small educational project —
-keep discussion constructive and on-topic.
+This project follows the guidelines in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
