@@ -6,6 +6,7 @@
 [![GitHub stars](https://img.shields.io/github/stars/corerag/newsfeed-fanout-demo?style=social)](https://github.com/corerag/newsfeed-fanout-demo/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/corerag/newsfeed-fanout-demo?style=social)](https://github.com/corerag/newsfeed-fanout-demo/forks)
 [![Open issues](https://img.shields.io/github/issues/corerag/newsfeed-fanout-demo)](https://github.com/corerag/newsfeed-fanout-demo/issues)
+[![Last commit](https://img.shields.io/github/last-commit/corerag/newsfeed-fanout-demo)](https://github.com/corerag/newsfeed-fanout-demo/commits/master)
 
 An interactive, single-file HTML demo of the news feed system from the
 [System Design Primer](https://github.com/donnemartin/system-design-primer),
