@@ -1,0 +1,37 @@
+name: Bug report
+description: Something in the demo is broken or behaves incorrectly.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect instead?
+      placeholder: e.g. Clicking "Post as Celebrity" repeatedly never triggers the rate limiter.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open index.html
+        2. Set "Rate limit (tokens)" to 1
+        3. Click "Post as Celebrity" twice
+        4. ...
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: e.g. Chrome 128 on Windows 11
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or console errors (optional)
+      description: Paste any relevant screenshots, GIFs, or browser console output.
+    validations:
+      required: false

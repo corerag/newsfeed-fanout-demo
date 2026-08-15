@@ -1,0 +1,28 @@
+name: Feature or scenario idea
+description: Suggest a new system-design concept to visualize, or an improvement to an existing one.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: mechanism
+    attributes:
+      label: What mechanism do you want to show?
+      description: >
+        A short description of the concept and why it's worth visualizing goes
+        further than a full spec — see CONTRIBUTING.md.
+      placeholder: e.g. Consistent hashing for the shard column, so resharding doesn't remap every follower.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why does it matter here?
+      description: What would someone learn from seeing it animated that they wouldn't get from the current diagram?
+    validations:
+      required: false
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This can be done without adding a build step, framework, or dependency (see CONTRIBUTING.md).
+          required: true
