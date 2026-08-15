@@ -2,6 +2,7 @@
 
 [![Validate HTML](https://github.com/corerag/newsfeed-fanout-demo/actions/workflows/validate-html.yml/badge.svg)](https://github.com/corerag/newsfeed-fanout-demo/actions/workflows/validate-html.yml)
 [![License: MIT](https://img.shields.io/github/license/corerag/newsfeed-fanout-demo)](LICENSE)
+[![Pages deployment](https://github.com/corerag/newsfeed-fanout-demo/actions/workflows/pages/pages-build-deployment/badge.svg)](https://corerag.github.io/newsfeed-fanout-demo/)
 
 An interactive, single-file HTML demo of the news feed system from the
 [System Design Primer](https://github.com/donnemartin/system-design-primer),
