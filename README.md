@@ -1,13 +1,11 @@
 # News Feed at Scale — Fan-out, Queues & Sharding
 
-[![Validate HTML](https://github.com/corerag/newsfeed-fanout-demo/actions/workflows/validate-html.yml/badge.svg)](https://github.com/corerag/newsfeed-fanout-demo/actions/workflows/validate-html.yml)
-[![License: MIT](https://img.shields.io/github/license/corerag/newsfeed-fanout-demo)](LICENSE)
-[![Pages deployment](https://github.com/corerag/newsfeed-fanout-demo/actions/workflows/pages/pages-build-deployment/badge.svg)](https://corerag.github.io/newsfeed-fanout-demo/)
-[![GitHub stars](https://img.shields.io/github/stars/corerag/newsfeed-fanout-demo?style=social)](https://github.com/corerag/newsfeed-fanout-demo/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/corerag/newsfeed-fanout-demo?style=social)](https://github.com/corerag/newsfeed-fanout-demo/forks)
-[![Open issues](https://img.shields.io/github/issues/corerag/newsfeed-fanout-demo)](https://github.com/corerag/newsfeed-fanout-demo/issues)
-[![Last commit](https://img.shields.io/github/last-commit/corerag/newsfeed-fanout-demo)](https://github.com/corerag/newsfeed-fanout-demo/commits/master)
-[![Repo size](https://img.shields.io/github/repo-size/corerag/newsfeed-fanout-demo)](https://github.com/corerag/newsfeed-fanout-demo)
+| | |
+|---|---|
+| **Build** | [![Validate HTML](https://github.com/corerag/newsfeed-fanout-demo/actions/workflows/validate-html.yml/badge.svg)](https://github.com/corerag/newsfeed-fanout-demo/actions/workflows/validate-html.yml) [![Pages deployment](https://github.com/corerag/newsfeed-fanout-demo/actions/workflows/pages/pages-build-deployment/badge.svg)](https://corerag.github.io/newsfeed-fanout-demo/) |
+| **License** | [![License: MIT](https://img.shields.io/github/license/corerag/newsfeed-fanout-demo)](LICENSE) |
+| **Community** | [![GitHub stars](https://img.shields.io/github/stars/corerag/newsfeed-fanout-demo?style=social)](https://github.com/corerag/newsfeed-fanout-demo/stargazers) [![GitHub forks](https://img.shields.io/github/forks/corerag/newsfeed-fanout-demo?style=social)](https://github.com/corerag/newsfeed-fanout-demo/forks) [![Open issues](https://img.shields.io/github/issues/corerag/newsfeed-fanout-demo)](https://github.com/corerag/newsfeed-fanout-demo/issues) |
+| **Repo** | [![Last commit](https://img.shields.io/github/last-commit/corerag/newsfeed-fanout-demo)](https://github.com/corerag/newsfeed-fanout-demo/commits/master) [![Repo size](https://img.shields.io/github/repo-size/corerag/newsfeed-fanout-demo)](https://github.com/corerag/newsfeed-fanout-demo) |
 
 An interactive, single-file HTML demo of the news feed system from the
 [System Design Primer](https://github.com/donnemartin/system-design-primer),
