@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>News Feed at Scale — Fan-out, Queues & Sharding</title>
+<style>
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+
+  :root {
+    color-scheme: light;
+    --bg: #eef3f2;
+    --surface: #fcfcfb;
+    --surface-2: #e6ece9;
+    --border: rgba(11,11,11,0.12);
+    --border-strong: rgba(11,11,11,0.24);
+    --text: #0b0b0b;
+    --text-dim: #52514e;
+    --text-muted: #7c8683;
+    --accent: #1baf7a;
+    --accent-dim: rgba(27,175,122,0.14);
+    --push: #2a78d6;
+    --push-dim: rgba(42,120,214,0.12);
+    --pull: #eb6834;
+    --pull-dim: rgba(235,104,52,0.12);
+    --warn: #b5750c;
+    --warn-dim: rgba(250,178,25,0.18);
+    --critical: #c23b3b;
+    --critical-dim: rgba(194,59,59,0.14);
+    --shadow: 0 1px 2px rgba(11,11,11,0.06), 0 10px 28px rgba(11,11,11,0.07);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #0a1210;
+      --surface: #121c19;
+      --surface-2: #17211e;
+      --border: rgba(255,255,255,0.12);
+      --border-strong: rgba(255,255,255,0.26);
+      --text: #f2f5f4;
+      --text-dim: #c3c2b7;
+      --text-muted: #8a938f;
+      --accent: #2fcf95;
+      --accent-dim: rgba(47,207,149,0.16);
+      --push: #4c93e8;
+      --push-dim: rgba(76,147,232,0.18);
+      --pull: #f0803f;
+      --pull-dim: rgba(240,128,63,0.18);
+      --warn: #f2b229;
+      --warn-dim: rgba(250,178,25,0.2);
+      --critical: #e8706f;
+      --critical-dim: rgba(232,112,111,0.18);
+      --shadow: 0 1px 2px rgba(0,0,0,0.35), 0 14px 34px rgba(0,0,0,0.4);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0a1210;
+    --surface: #121c19;
+    --surface-2: #17211e;
+    --border: rgba(255,255,255,0.12);
+    --border-strong: rgba(255,255,255,0.26);
+    --text: #f2f5f4;
+    --text-dim: #c3c2b7;
+    --text-muted: #8a938f;
+    --accent: #2fcf95;
+    --accent-dim: rgba(47,207,149,0.16);
+    --push: #4c93e8;
+    --push-dim: rgba(76,147,232,0.18);
+    --pull: #f0803f;
+    --pull-dim: rgba(240,128,63,0.18);
+    --warn: #f2b229;
+    --warn-dim: rgba(250,178,25,0.2);
+    --critical: #e8706f;
+    --critical-dim: rgba(232,112,111,0.18);
+    --shadow: 0 1px 2px rgba(0,0,0,0.35), 0 14px 34px rgba(0,0,0,0.4);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .font-mono {
+    font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, "Liberation Mono", monospace;
+  }
+  .page { max-width: 1280px; margin: 0 auto; padding: 28px 20px 64px; }
+
+  header.hero { margin-bottom: 22px; }
+  .eyebrow {
+    font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, "Liberation Mono", monospace;
+    font-size: 11.5px;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    margin: 0 0 8px;
+  }
+  h1 {
+    font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, "Liberation Mono", monospace;
+    font-weight: 600;
+    font-size: clamp(22px, 3vw, 30px);
+    letter-spacing: -0.01em;
+    margin: 0 0 8px;
+    text-wrap: balance;
+  }
+  .dek { color: var(--text-dim); max-width: 62ch; margin: 0 0 16px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; }
+  .legend-item { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-dim); }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+  .swatch.push { background: var(--push); }
+  .swatch.pull { background: var(--pull); }
+  .swatch.neutral { background: var(--accent); }
+  .swatch.warn { background: var(--warn); }
+  .swatch.critical { background: var(--critical); }
+  .legend-item .dash { width: 16px; height: 0; border-top: 2px dashed var(--text-muted); }
+
+  main.layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 328px);
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 980px) {
+    main.layout { grid-template-columns: minmax(0, 1fr); }
+  }
+  main.layout > * { min-width: 0; }
+  .rail, .card { min-width: 0; }
+  .metric-row, .bar-row, .field-label { min-width: 0; }
+  .metric-row > *, .bar-row > *, .field-label > * { min-width: 0; }
+  .metric-val, .bar-val, .bar-name { overflow-wrap: anywhere; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+  }
+  .card-head {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+  }
+  .card-title {
+    font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, "Liberation Mono", monospace;
+    font-size: 13px; font-weight: 600; letter-spacing: 0.02em; margin: 0;
+  }
+  .card-sub { font-size: 12px; color: var(--text-muted); }
+  .card-body { padding: 16px 18px; }
+
+  .diagram-wrap { overflow-x: auto; padding: 6px 4px; }
+  #diagram { width: 100%; min-width: 1040px; height: auto; display: block; }
+  #diagram .node-box {
+    fill: var(--surface); stroke: var(--border-strong); stroke-width: 1.4;
+    transition: stroke 0.15s ease, stroke-width 0.15s ease;
+  }
+  #diagram .node-box.active { stroke: var(--accent); stroke-width: 2.4; }
+  #diagram .node-box.flash { fill: var(--accent-dim); }
+  #diagram .node-title { fill: var(--text); font-weight: 600; }
+  #diagram .node-sub { fill: var(--text-muted); }
+  #diagram text { font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, "Liberation Mono", monospace; }
+  #diagram .edge { stroke: var(--border-strong); stroke-width: 1.4; fill: none; }
+  #diagram .edge.dashed { stroke-dasharray: 5 5; }
+  #diagram .edge-label { fill: var(--text-muted); font-size: 11px; }
+  #diagram .lane-label { fill: var(--text-muted); font-size: 11px; letter-spacing: 0.08em; }
+  #diagram .shard-box { fill: var(--surface-2); stroke: var(--border-strong); stroke-width: 1.2; }
+  #diagram .shard-box.flash { fill: var(--accent); opacity: 0.9; }
+  #diagram .worker-c { fill: var(--surface-2); stroke: var(--border-strong); stroke-width: 1.4; }
+  #diagram .worker-c.busy { fill: var(--push); stroke: var(--push); }
+  #diagram .queue-slot { fill: var(--push-dim); stroke: var(--push); stroke-width: 1; }
+  #diagram .queue-slot.warn { fill: var(--warn-dim); stroke: var(--warn); }
+  #diagram .node-box.backpressure { stroke: var(--warn); stroke-width: 1.8; stroke-dasharray: 4 3; }
+  #diagram .node-box.overflow { stroke: var(--warn); stroke-width: 2.2; animation: pulse-warn 1s ease-in-out infinite; }
+  @keyframes pulse-warn { 0%, 100% { stroke-opacity: 1; } 50% { stroke-opacity: 0.45; } }
+  #diagram .node-box.exhausted { stroke: var(--critical); stroke-width: 1.8; stroke-dasharray: 2 3; }
+  #diagram .node-box.reject { fill: var(--critical-dim); stroke: var(--critical); stroke-width: 2.4; }
+  #diagram .node-hit { fill: transparent; cursor: pointer; }
+  #diagram .node-hit:focus { outline: none; }
+  #diagram .node-hit:focus-visible + .node-box,
+  .node-group:focus-within .node-box { stroke: var(--accent); stroke-width: 2.4; }
+
+  .inspector {
+    margin-top: 4px; padding: 12px 14px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    font-size: 13.5px; color: var(--text-dim); min-height: 44px;
+  }
+  .inspector b { color: var(--text); font-weight: 600; }
+
+  .rail { display: flex; flex-direction: column; gap: 20px; }
+  .field { margin-bottom: 14px; }
+  .field:last-child { margin-bottom: 0; }
+  .field-label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 12px; color: var(--text-muted); margin-bottom: 6px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .field-label .val { font-family: ui-monospace, monospace; color: var(--text); font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  select {
+    width: 100%; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--border-strong);
+    background: var(--surface); color: var(--text); font-size: 13.5px; font-family: inherit;
+  }
+  select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  button.action {
+    width: 100%; padding: 10px 12px; border-radius: 7px; border: 1px solid var(--border-strong);
+    background: var(--surface-2); color: var(--text); font-size: 13.5px; font-weight: 600;
+    cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    font-family: inherit; transition: transform 0.08s ease, background 0.15s ease;
+  }
+  button.action:hover { background: var(--border); }
+  button.action:active { transform: scale(0.98); }
+  button.action .tag { font-size: 10.5px; font-family: ui-monospace, monospace; padding: 2px 6px; border-radius: 4px; letter-spacing: 0.04em; }
+  button.action.push .tag { background: var(--push-dim); color: var(--push); }
+  button.action.pull .tag { background: var(--pull-dim); color: var(--pull); }
+  button.action.warn .tag { background: var(--warn-dim); color: var(--warn); }
+  button.action.small { width: auto; font-weight: 500; }
+  .btn-row { display: flex; flex-direction: column; gap: 8px; }
+
+  .metric-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .metric-label { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .metric-val { font-family: ui-monospace, monospace; font-size: 13px; color: var(--text); font-variant-numeric: tabular-nums; }
+  .metric-val.warn { color: var(--warn); }
+  .metric-val.critical { color: var(--critical); }
+  .metric-block { margin-bottom: 18px; }
+  .metric-block:last-child { margin-bottom: 0; }
+
+  svg.spark { width: 100%; height: 56px; display: block; overflow: visible; }
+  svg.spark .area { fill: var(--accent-dim); }
+  svg.spark .line { fill: none; stroke: var(--accent); stroke-width: 2; }
+  svg.spark .grid { stroke: var(--border); stroke-width: 1; }
+  svg.spark .dot { fill: var(--accent); }
+  svg.spark .cap-line { stroke: var(--warn); stroke-width: 1; stroke-dasharray: 3 3; }
+  svg.spark .cap-label { fill: var(--warn); font-size: 9px; font-family: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, "Liberation Mono", monospace; }
+
+  .bars { display: flex; flex-direction: column; gap: 6px; }
+  .bar-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) 30px; align-items: center; gap: 8px; }
+  .bar-name { font-size: 11.5px; color: var(--text-muted); font-family: ui-monospace, monospace; }
+  .bar-track { height: 10px; background: var(--surface-2); border-radius: 5px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--accent); border-radius: 5px; transition: width 0.25s ease; }
+  .bar-val { font-size: 11.5px; text-align: right; font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums; color: var(--text-dim); }
+
+  .toast {
+    font-size: 12px; color: var(--warn); background: var(--warn-dim); border-radius: 6px;
+    padding: 7px 10px; margin-top: 10px; opacity: 0; transition: opacity 0.25s ease;
+  }
+  .toast.show { opacity: 1; }
+
+  .followers { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chip {
+    font-size: 11px; font-family: ui-monospace, monospace; padding: 4px 7px; border-radius: 5px;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
+    display: flex; align-items: center; gap: 5px;
+  }
+  .chip.alice::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--push); }
+  .chip .shardtag { color: var(--text-muted); }
+
+  .feed-card { margin-top: 20px; }
+  .feed-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .feed-controls select { width: auto; min-width: 220px; }
+  .feed-list { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .feed-item {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+    font-size: 13.5px;
+  }
+  .feed-tag {
+    font-family: ui-monospace, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em;
+    padding: 3px 7px; border-radius: 4px; flex: none;
+  }
+  .feed-tag.push { background: var(--push-dim); color: var(--push); }
+  .feed-tag.pull { background: var(--pull-dim); color: var(--pull); }
+  .feed-author { font-weight: 600; }
+  .feed-meta { margin-left: auto; color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .feed-empty { color: var(--text-muted); font-size: 13.5px; padding: 6px 2px; }
+
+  footer { margin-top: 30px; color: var(--text-muted); font-size: 12.5px; max-width: 70ch; }
+  footer code { font-family: ui-monospace, monospace; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
+
+  .token { pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="hero">
+    <p class="eyebrow">System Design Primer &middot; News Feed</p>
+    <h1>Fan-out, queues, and sharding</h1>
+    <p class="dek">A regular post is pushed to every follower's feed on write. A celebrity's post is written once and pulled at read time — fanning out to millions is too expensive. Post as each to see why real feeds use both.</p>
+    <div class="legend">
+      <span class="legend-item"><span class="swatch push"></span>Push &middot; fan-out-on-write</span>
+      <span class="legend-item"><span class="swatch pull"></span>Pull &middot; fan-out-on-read</span>
+      <span class="legend-item"><span class="swatch neutral"></span>Queue / shard traffic</span>
+      <span class="legend-item"><span class="dash"></span>Read-time merge</span>
+      <span class="legend-item"><span class="swatch warn"></span>Queue full &middot; backpressure</span>
+      <span class="legend-item"><span class="swatch critical"></span>Rate limited &middot; quota</span>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="card">
+      <div class="card-head">
+        <p class="card-title">ARCHITECTURE</p>
+        <p class="card-sub">click a node for details</p>
+      </div>
+      <div class="card-body">
+        <div class="diagram-wrap">
+          <svg id="diagram" viewBox="0 0 1320 640" role="img" aria-label="News feed architecture: Alice's posts pass through a per-account rate limiter, then a fan-out service, into a message queue drained by workers that write into sharded feed stores; a celebrity's posts pass through their own rate limiter and write once into a celebrity store; at read time a feed aggregator merges a follower's shard with the celebrity store. The queue has limited capacity — once full it drops new jobs and signals backpressure to the fan-out service until it drains. The rate limiters cap how many posts each account can make in a burst, rejecting excess posts before any of that work starts."></svg>
+        </div>
+        <div class="inspector" id="inspector" aria-live="polite">
+          <b>Two delivery paths, one merged feed.</b> The top lane pushes Alice's post to every follower immediately (cheap for her, since she has few followers). The bottom lane defers the celebrity's fan-out until someone actually reads their feed. Click any box above to learn what it does.
+        </div>
+      </div>
+    </section>
+
+    <aside class="rail">
+      <div class="card">
+        <div class="card-head"><p class="card-title">SIMULATE</p></div>
+        <div class="card-body">
+          <div class="btn-row">
+            <button class="action push" id="btn-alice">
+              <span>Post as Alice <span class="card-sub">(7 followers)</span></span>
+              <span class="tag">PUSH</span>
+            </button>
+            <button class="action pull" id="btn-celeb">
+              <span>Post as Celebrity <span class="card-sub">(5.2M followers)</span></span>
+              <span class="tag">PULL</span>
+            </button>
+            <button class="action warn" id="btn-burst">
+              <span>Simulate traffic burst <span class="card-sub">(5 posts at once)</span></span>
+              <span class="tag">BURST</span>
+            </button>
+          </div>
+
+          <div class="field" style="margin-top:18px;">
+            <div class="field-label"><span>Workers draining the queue</span><span class="val" id="workers-val">2</span></div>
+            <input type="range" id="workers-range" min="1" max="4" value="2" step="1" />
+          </div>
+          <div class="field">
+            <div class="field-label"><span>Feed shards</span><span class="val" id="shards-val">4</span></div>
+            <input type="range" id="shards-range" min="2" max="8" value="4" step="1" />
+          </div>
+          <div class="field">
+            <div class="field-label"><span>Queue capacity</span><span class="val" id="capacity-val">12</span></div>
+            <input type="range" id="capacity-range" min="6" max="20" value="12" step="1" />
+          </div>
+          <div class="field">
+            <div class="field-label"><span>Rate limit (tokens)</span><span class="val" id="ratelimit-val">3</span></div>
+            <input type="range" id="ratelimit-range" min="1" max="6" value="3" step="1" />
+          </div>
+          <div class="toast" id="toast"></div>
+
+          <div class="followers" id="followers"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><p class="card-title">METRICS</p></div>
+        <div class="card-body">
+          <div class="metric-block">
+            <div class="metric-row"><span class="metric-label">Queue depth</span><span class="metric-val" id="queue-now">0</span></div>
+            <div class="metric-row"><span class="metric-label">Dropped (queue full)</span><span class="metric-val" id="dropped-now">0</span></div>
+            <div class="metric-row"><span class="metric-label">Rate limited (quota)</span><span class="metric-val" id="ratelimited-now">0</span></div>
+            <svg class="spark" id="spark" viewBox="0 0 280 56" preserveAspectRatio="none"></svg>
+          </div>
+          <div class="metric-block">
+            <div class="metric-row"><span class="metric-label">Writes per shard</span><span class="metric-val" id="shard-total">0 total</span></div>
+            <div class="bars" id="bars"></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <section class="card feed-card">
+    <div class="card-head">
+      <p class="card-title">FOLLOWER FEED — READ-TIME MERGE</p>
+      <p class="card-sub">shard read (push) + celebrity store read (pull)</p>
+    </div>
+    <div class="card-body">
+      <div class="feed-controls">
+        <select id="follower-select"></select>
+        <button class="action small" id="btn-view">View feed</button>
+      </div>
+      <ul class="feed-list" id="feed-list">
+        <li class="feed-empty">Select a follower and view their feed to see push and pull items merge by time.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    Modeled on the news feed system in the System Design Primer: <code>fan-out-on-write</code> trades expensive writes for instant reads, <code>fan-out-on-read</code> trades a merge-time cost for cheap writes on high-fan-out accounts, a <code>message queue</code> smooths the write burst so producers never block on it, and <code>sharding</code> (here, <code>follower_id % shards</code>) spreads that write load across stores. Most real feeds use a hybrid, exactly like the merge below. The queue is also bounded: past capacity it applies <code>backpressure</code> — new jobs are dropped (load shedding) and the fan-out service throttles until the queue drains, rather than growing without limit. A <code>rate limiter</code> sits even earlier, in front of both lanes: a fixed per-account token bucket that rejects excess posts outright, checked before any fan-out or queue work starts — a proactive client-side quota, independent of how loaded the system happens to be. Try the traffic burst button, or just click "Post as Alice" a few times fast, to see both kick in.
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var NS = "http://www.w3.org/2000/svg";
+  var COLORS = { push: "var(--push)", pull: "var(--pull)", neutral: "var(--accent)" };
+
+  var FOLLOWERS = [
+    { id: 0, name: "Ravi" }, { id: 1, name: "Mei" }, { id: 2, name: "Sofia" },
+    { id: 3, name: "Tom" }, { id: 4, name: "Nina" }, { id: 5, name: "Jae" },
+    { id: 6, name: "Omar" }, { id: 7, name: "Liv" }, { id: 8, name: "Kofi" },
+    { id: 9, name: "Amara" }, { id: 10, name: "Dev" }, { id: 11, name: "Yuki" }
+  ];
+  var ALICE_FOLLOWERS = new Set([0, 1, 2, 3, 4, 5, 6]);
+
+  var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  var state = {
+    numWorkers: 2,
+    numShards: 4,
+    queueCapacity: 12,
+    droppedJobs: 0,
+    backpressure: false,
+    rateLimit: {
+      push: { tokens: 3, capacity: 3, blockedCount: 0 },
+      pull: { tokens: 3, capacity: 3, blockedCount: 0 }
+    },
+    queue: [],
+    workers: [],
+    shardWrites: [],
+    queueHistory: [],
+    feedStore: {},
+    celebPosts: [],
+    postSeq: 0
+  };
+  var BACKPRESSURE_RESUME_RATIO = 0.6;
+
+  var NODE_INFO = {
+    alice: { title: "Alice — regular user", body: "A regular account with a manageable follower count. Pushing a post to all of them right now is cheap, so there's no reason to defer it." },
+    gatePush: { title: "Rate limiter (push lane)", body: "A token bucket caps how many posts Alice can make in a burst — each post spends one token, refilling slowly over time. It's a fixed, proactive quota, checked before any fan-out or queue work happens — unlike backpressure, which reacts to how full the queue actually is." },
+    gatePull: { title: "Rate limiter (pull lane)", body: "The celebrity's posts are capped the same way, in their own independent bucket under the same shared policy. Cheap to check, so it can reject an abusive or malfunctioning client before any real work starts." },
+    fanout: { title: "Fan-out service (on write)", body: "On every post, this precomputes delivery to each follower's feed. Reads become instant lookups later — the cost is paid up front, once per follower. If the queue downstream is full, this service throttles rather than piling on more work it can't deliver." },
+    queue: { title: "Message queue", body: "Decouples the fan-out service from the workers doing the writing. It absorbs bursts up to its capacity — but it isn't infinite. Once full, new jobs are dropped (load shedding) and the fan-out service is throttled until it drains." },
+    workers: { title: "Worker pool", body: "Each worker pulls one job at a time and writes a single (follower, post) pair into that follower's feed shard. More workers drain the queue faster, but each does constant work per job regardless of the account's size." },
+    shards: { title: "Sharded feed store", body: "Feed entries are partitioned across stores, typically by hash(follower_id) % N. This spreads read and write load across machines so no single shard becomes a bottleneck as followers grow." },
+    celeb: { title: "Celebrity — 5.2M followers", body: "Fanning this post out to every follower on write would mean millions of individual writes for one post. That cost doesn't scale, so it's deferred." },
+    celebstore: { title: "Celebrity store (on read)", body: "The post is written exactly once, here — never pushed to a follower's feed. The cost shifts from write time to read time: every feed read must now also check this store." },
+    aggregator: { title: "Feed aggregator", body: "At read time, this merges the follower's precomputed (pushed) shard entries with any pulled celebrity posts into one timeline, sorted by time. This hybrid is how most real feeds actually work." }
+  };
+
+  FOLLOWERS.forEach(function (f) { state.feedStore[f.id] = []; });
+  for (var w = 0; w < state.numWorkers; w++) state.workers.push({ id: w, busy: false });
+  resetShardWrites();
+
+  function resetShardWrites() {
+    state.shardWrites = new Array(state.numShards).fill(0);
+  }
+  function shardOf(followerId) { return followerId % state.numShards; }
+
+  // ---------- layout ----------
+  var POS = {
+    alice: { x: 20, y: 78, w: 150, h: 62 },
+    celeb: { x: 20, y: 478, w: 150, h: 62 },
+    gatePush: { x: 190, y: 78, w: 134, h: 62 },
+    gatePull: { x: 190, y: 478, w: 134, h: 62 },
+    fanout: { x: 364, y: 78, w: 156, h: 62 },
+    celebstore: { x: 364, y: 478, w: 156, h: 62 },
+    queue: { x: 574, y: 78, w: 150, h: 62 },
+    workersBox: { x: 778, y: 40, w: 100, h: 140 },
+    shardCol: { x: 936, y: 30, w: 160 },
+    aggregator: { x: 1146, y: 290, w: 150, h: 68 }
+  };
+  var SHARD_TOP = 30, SHARD_BOTTOM = 596;
+
+  function shardLayout(n) {
+    var boxH = Math.max(30, Math.min(58, (SHARD_BOTTOM - SHARD_TOP) / n - 10));
+    var span = SHARD_BOTTOM - SHARD_TOP - boxH;
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var y = n === 1 ? (SHARD_TOP + SHARD_BOTTOM) / 2 - boxH / 2 : SHARD_TOP + (span * i) / (n - 1);
+      out.push({ y: y, h: boxH });
+    }
+    return out;
+  }
+  function workerLayout(n) {
+    var r = 17, top = POS.workersBox.y + 30, gap = 42;
+    var out = [];
+    for (var i = 0; i < n; i++) out.push({ cx: POS.workersBox.x + POS.workersBox.w / 2, cy: top + i * gap, r: r });
+    return out;
+  }
+
+  function el(tag, attrs, parent) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function boxCenter(p) { return { x: p.x + p.w / 2, y: p.y + p.h / 2 }; }
+
+  var svg = document.getElementById("diagram");
+  var shardBoxesById = {};
+  var workerCirclesById = {};
+
+  function renderDiagram() {
+    svg.innerHTML = "";
+    var defs = el("defs", {}, svg);
+    var marker = el("marker", { id: "arrow", viewBox: "0 0 10 10", refX: "8", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" }, defs);
+    el("path", { d: "M0,0 L10,5 L0,10 z", fill: "var(--text-muted)" }, marker);
+
+    var edgesG = el("g", { class: "edges" }, svg);
+    var nodesG = el("g", { class: "nodes" }, svg);
+    var overlayG = el("g", { class: "overlay" }, svg); // tokens & flashes drawn above
+
+    function edge(x1, y1, x2, y2, label, dashed) {
+      el("line", { class: "edge" + (dashed ? " dashed" : ""), x1: x1, y1: y1, x2: x2, y2: y2, "marker-end": "url(#arrow)" }, edgesG);
+      if (label) {
+        var lx = (x1 + x2) / 2, ly = (y1 + y2) / 2 - 8;
+        el("text", { class: "edge-label", x: lx, y: ly, "text-anchor": "middle" }, edgesG).textContent = label;
+      }
+    }
+
+    // lane labels
+    el("text", { class: "lane-label", x: 20, y: 60, "text-anchor": "start" }, edgesG).textContent = "PUSH LANE — FAN-OUT-ON-WRITE";
+    el("text", { class: "lane-label", x: 20, y: 460, "text-anchor": "start" }, edgesG).textContent = "PULL LANE — FAN-OUT-ON-READ";
+
+    // static edges: push lane
+    edge(POS.alice.x + POS.alice.w, boxCenter(POS.alice).y, POS.gatePush.x, boxCenter(POS.gatePush).y, "post");
+    edge(POS.gatePush.x + POS.gatePush.w, boxCenter(POS.gatePush).y, POS.fanout.x, boxCenter(POS.fanout).y, "allowed");
+    edge(POS.fanout.x + POS.fanout.w, boxCenter(POS.fanout).y, POS.queue.x, boxCenter(POS.queue).y, "enqueue 1 job / follower");
+    edge(POS.queue.x + POS.queue.w, boxCenter(POS.queue).y, POS.workersBox.x, boxCenter(POS.queue).y, "dequeue");
+    // workers -> shard column (funnel guide lines)
+    var wc = boxCenter(POS.workersBox);
+    edge(POS.workersBox.x + POS.workersBox.w, POS.workersBox.y + 8, POS.shardCol.x, SHARD_TOP + 10, null);
+    edge(POS.workersBox.x + POS.workersBox.w, POS.workersBox.y + POS.workersBox.h - 8, POS.shardCol.x, SHARD_BOTTOM - 10, null);
+    el("text", { class: "edge-label", x: (POS.workersBox.x + POS.shardCol.x) / 2 + 10, y: boxCenter(POS.workersBox).y - 4, "text-anchor": "middle" }, edgesG).textContent = "write(follower_id)";
+    el("text", { class: "edge-label", x: (POS.workersBox.x + POS.shardCol.x) / 2 + 10, y: boxCenter(POS.workersBox).y + 14, "text-anchor": "middle" }, edgesG).textContent = "→ shard = id % N";
+
+    // pull lane
+    edge(POS.celeb.x + POS.celeb.w, boxCenter(POS.celeb).y, POS.gatePull.x, boxCenter(POS.gatePull).y, "post");
+    edge(POS.gatePull.x + POS.gatePull.w, boxCenter(POS.gatePull).y, POS.celebstore.x, boxCenter(POS.celebstore).y, "allowed, single write");
+    edge(POS.celebstore.x + POS.celebstore.w, boxCenter(POS.celebstore).y, POS.aggregator.x + POS.aggregator.w / 2, POS.aggregator.y + POS.aggregator.h, "pull at read time", true);
+
+    // shards -> aggregator (dashed, from column midpoint)
+    var shards = shardLayout(state.numShards);
+    var colMidY = (SHARD_TOP + SHARD_BOTTOM) / 2;
+    edge(POS.shardCol.x + POS.shardCol.w, colMidY, POS.aggregator.x, boxCenter(POS.aggregator).y, "read follower's shard", true);
+
+    // ---- nodes ----
+    function node(id, p, title, sub) {
+      var g = el("g", { class: "node-group" }, nodesG);
+      el("rect", { class: "node-box", x: p.x, y: p.y, width: p.w, height: p.h, rx: 8, id: "box-" + id }, g);
+      el("text", { class: "node-title", x: p.x + 12, y: p.y + 26, "font-size": 15 }, g).textContent = title;
+      if (sub) el("text", { class: "node-sub", x: p.x + 12, y: p.y + 46, "font-size": 11.5 }, g).textContent = sub;
+      var hit = el("rect", { class: "node-hit", x: p.x, y: p.y, width: p.w, height: p.h, rx: 8, tabindex: "0", role: "button", "aria-label": title }, g);
+      hit.addEventListener("click", function () { showInspector(id); });
+      hit.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); showInspector(id); } });
+      return g;
+    }
+
+    var queueFull = state.queue.length >= state.queueCapacity;
+    var fanoutSub = state.backpressure ? "throttled — backpressure" : "on write";
+    var queueSub = state.queue.length + "/" + state.queueCapacity + " queued";
+    var pushRL = state.rateLimit.push, pullRL = state.rateLimit.pull;
+    var gatePushSub = pushRL.tokens + "/" + pushRL.capacity + " tokens";
+    var gatePullSub = pullRL.tokens + "/" + pullRL.capacity + " tokens";
+
+    node("alice", POS.alice, "Alice", "7 followers");
+    node("gatePush", POS.gatePush, "Rate limiter", gatePushSub);
+    node("fanout", POS.fanout, "Fan-out service", fanoutSub);
+    node("queue", POS.queue, "Message queue", queueSub);
+    node("celeb", POS.celeb, "Celebrity", "5.2M followers");
+    node("gatePull", POS.gatePull, "Rate limiter", gatePullSub);
+    node("celebstore", POS.celebstore, "Celebrity store", "single write");
+    node("aggregator", POS.aggregator, "Feed aggregator", "read-time merge");
+
+    if (queueFull) document.getElementById("box-queue").classList.add("overflow");
+    else if (state.backpressure) document.getElementById("box-queue").classList.add("backpressure");
+    if (state.backpressure) document.getElementById("box-fanout").classList.add("backpressure");
+    if (pushRL.tokens <= 0) document.getElementById("box-gatePush").classList.add("exhausted");
+    if (pullRL.tokens <= 0) document.getElementById("box-gatePull").classList.add("exhausted");
+
+    // queue slots, scaled to capacity
+    var CAP = state.queueCapacity;
+    var innerW = POS.queue.w - 20;
+    var step = innerW / CAP;
+    var sqSize = Math.max(3, Math.min(11, step - 2));
+    var qSlots = Math.min(state.queue.length, CAP);
+    for (var qi = 0; qi < CAP; qi++) {
+      var sx = POS.queue.x + 10 + qi * step;
+      el("rect", { class: "queue-slot" + (queueFull ? " warn" : ""), x: sx, y: POS.queue.y + POS.queue.h - 14, width: sqSize, height: sqSize, rx: 2, opacity: qi < qSlots ? 1 : 0.15 }, nodesG);
+    }
+
+    // workers group box
+    node("workers", { x: POS.workersBox.x, y: POS.workersBox.y - 26, w: POS.workersBox.w, h: 22 }, "Workers", null);
+    var wLayout = workerLayout(state.numWorkers);
+    workerCirclesById = {};
+    wLayout.forEach(function (wl, i) {
+      var c = el("circle", { class: "worker-c", cx: wl.cx, cy: wl.cy, r: wl.r }, nodesG);
+      el("text", { x: wl.cx, y: wl.cy + 4, "text-anchor": "middle", "font-size": 11, fill: "var(--text)" }, nodesG).textContent = "W" + (i + 1);
+      workerCirclesById[i] = c;
+    });
+
+    // shard column
+    shardBoxesById = {};
+    shards.forEach(function (s, i) {
+      var g = el("g", { class: "node-group" }, nodesG);
+      var box = el("rect", { class: "shard-box", x: POS.shardCol.x, y: s.y, width: POS.shardCol.w, height: s.h, rx: 6 }, g);
+      el("text", { x: POS.shardCol.x + 10, y: s.y + s.h / 2 + 4, "font-size": 12, fill: "var(--text)" }, g).textContent = "Shard " + i;
+      var hit = el("rect", { class: "node-hit", x: POS.shardCol.x, y: s.y, width: POS.shardCol.w, height: s.h, rx: 6, tabindex: "0", role: "button", "aria-label": "Shard " + i }, g);
+      hit.addEventListener("click", function () { showInspector("shards"); });
+      shardBoxesById[i] = box;
+    });
+
+    activeNode && setActive(activeNode);
+    window.__diagramOverlay = overlayG;
+  }
+
+  var activeNode = null;
+  function setActive(id) {
+    activeNode = id;
+    Array.prototype.forEach.call(svg.querySelectorAll(".node-box"), function (b) { b.classList.remove("active"); });
+    var target = document.getElementById("box-" + id);
+    if (target) target.classList.add("active");
+    else if (id === "shards") Object.keys(shardBoxesById).forEach(function (k) { shardBoxesById[k].classList.add("active"); });
+    else if (id === "workers") Object.keys(workerCirclesById).forEach(function (k) { workerCirclesById[k].classList.add("active"); });
+  }
+  function showInspector(id) {
+    setActive(id);
+    var info = NODE_INFO[id];
+    if (!info) return;
+    var extra = "";
+    if (id === "queue" && state.queue.length >= state.queueCapacity) {
+      extra = ' <b>Right now:</b> full at ' + state.queueCapacity + "/" + state.queueCapacity + " — new jobs are being dropped.";
+    } else if (id === "fanout" && state.backpressure) {
+      extra = ' <b>Right now:</b> throttled, waiting for the queue to drain below ' + Math.floor(state.queueCapacity * BACKPRESSURE_RESUME_RATIO) + " before resuming.";
+    } else if (id === "gatePush" && state.rateLimit.push.tokens <= 0) {
+      extra = ' <b>Right now:</b> exhausted — 0/' + state.rateLimit.push.capacity + " tokens. Refilling 1 every 3s.";
+    } else if (id === "gatePull" && state.rateLimit.pull.tokens <= 0) {
+      extra = ' <b>Right now:</b> exhausted — 0/' + state.rateLimit.pull.capacity + " tokens. Refilling 1 every 3s.";
+    }
+    document.getElementById("inspector").innerHTML = "<b>" + info.title + ".</b> " + info.body + extra;
+  }
+
+  function flashNode(id) {
+    var box = document.getElementById("box-" + id);
+    if (!box) return;
+    box.classList.add("flash");
+    setTimeout(function () { box.classList.remove("flash"); }, 420);
+  }
+  function flashNodeCritical(id) {
+    var box = document.getElementById("box-" + id);
+    if (!box) return;
+    box.classList.add("reject");
+    setTimeout(function () { box.classList.remove("reject"); }, 420);
+  }
+  function flashShard(i) {
+    var box = shardBoxesById[i];
+    if (!box) return;
+    box.classList.add("flash");
+    setTimeout(function () { box.classList.remove("flash"); }, 420);
+  }
+
+  // ---------- token animation ----------
+  function animateToken(x1, y1, x2, y2, color, dur, onDone) {
+    if (reduceMotion) { onDone && onDone(); return; }
+    var overlay = window.__diagramOverlay;
+    if (!overlay) { onDone && onDone(); return; }
+    var t = el("circle", { class: "token", r: 5, fill: color, cx: x1, cy: y1 }, overlay);
+    var start = null;
+    function step(ts) {
+      if (!start) start = ts;
+      var p = Math.min(1, (ts - start) / dur);
+      var ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      t.setAttribute("cx", x1 + (x2 - x1) * ease);
+      t.setAttribute("cy", y1 + (y2 - y1) * ease);
+      if (p < 1) requestAnimationFrame(step);
+      else { t.remove(); onDone && onDone(); }
+    }
+    requestAnimationFrame(step);
+  }
+
+  // ---------- simulation ----------
+  var toastTimer = null;
+  function toast(msg) {
+    var el2 = document.getElementById("toast");
+    el2.textContent = msg;
+    el2.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el2.classList.remove("show"); }, 2400);
+  }
+
+  function tryConsumeToken(lane) {
+    var rl = state.rateLimit[lane];
+    if (rl.tokens <= 0) {
+      rl.blockedCount++;
+      updateRateLimitedLabel();
+      return false;
+    }
+    rl.tokens--;
+    return true;
+  }
+
+  function tryEnqueue(job) {
+    if (state.queue.length >= state.queueCapacity) {
+      state.droppedJobs++;
+      state.backpressure = true;
+      updateDroppedLabel();
+      return false;
+    }
+    state.queue.push(job);
+    if (state.queue.length >= state.queueCapacity) state.backpressure = true;
+    return true;
+  }
+
+  function postAsAlice() {
+    var postId = "p" + (state.postSeq++);
+    var ts = Date.now();
+    var a = boxCenter(POS.alice), g = boxCenter(POS.gatePush), f = boxCenter(POS.fanout), q = boxCenter(POS.queue);
+    flashNode("alice");
+    var allowed = tryConsumeToken("push");
+    renderDiagram();
+    animateToken(a.x, a.y, g.x, g.y, "var(--push)", 260, function () {
+      if (!allowed) {
+        flashNodeCritical("gatePush");
+        toast("Rate limited — Alice is over her post quota (0/" + state.rateLimit.push.capacity + " tokens). Refills 1 every 3s.");
+        return;
+      }
+      flashNode("gatePush");
+      animateToken(g.x, g.y, f.x, f.y, "var(--push)", 260, function () {
+        flashNode("fanout");
+        var followers = FOLLOWERS.filter(function (fl) { return ALICE_FOLLOWERS.has(fl.id); });
+        animateToken(f.x, f.y, q.x, q.y, "var(--push)", 420, function () {
+          var dropped = 0;
+          followers.forEach(function (fl) {
+            var ok = tryEnqueue({ followerId: fl.id, postId: postId, author: "Alice", ts: ts, targetShard: shardOf(fl.id) });
+            if (!ok) dropped++;
+          });
+          renderDiagram();
+          updateQueueLabel();
+          if (dropped > 0) {
+            toast(dropped + " of " + followers.length + " jobs dropped — queue full (" + state.queueCapacity + "/" + state.queueCapacity + "). Backpressure: fan-out throttles until it drains.");
+          }
+        });
+      });
+    });
+  }
+
+  function simulateBurst() {
+    toast("Traffic spike — 5 posts arriving back to back.");
+    for (var i = 0; i < 5; i++) setTimeout(postAsAlice, i * 140);
+  }
+
+  function postAsCelebrity() {
+    var postId = "p" + (state.postSeq++);
+    var ts = Date.now();
+    var c = boxCenter(POS.celeb), g = boxCenter(POS.gatePull), s = boxCenter(POS.celebstore);
+    flashNode("celeb");
+    var allowed = tryConsumeToken("pull");
+    renderDiagram();
+    animateToken(c.x, c.y, g.x, g.y, "var(--pull)", 260, function () {
+      if (!allowed) {
+        flashNodeCritical("gatePull");
+        toast("Rate limited — the celebrity account is over quota (0/" + state.rateLimit.pull.capacity + " tokens). Refills 1 every 3s.");
+        return;
+      }
+      flashNode("gatePull");
+      animateToken(g.x, g.y, s.x, s.y, "var(--pull)", 260, function () {
+        state.celebPosts.push({ postId: postId, author: "Celebrity", ts: ts });
+        flashNode("celebstore");
+        toast("1 write — no fan-out to 5.2M followers.");
+        updateBars();
+      });
+    });
+  }
+
+  function workerTick() {
+    state.workers.forEach(function (worker) {
+      if (worker.busy || state.queue.length === 0) return;
+      var job = state.queue.shift();
+      if (state.backpressure && state.queue.length <= Math.floor(state.queueCapacity * BACKPRESSURE_RESUME_RATIO)) {
+        state.backpressure = false;
+      }
+      worker.busy = true;
+      renderDiagram();
+      var wl = workerLayout(state.numWorkers)[worker.id];
+      var shards = shardLayout(state.numShards);
+      var sTarget = shards[job.targetShard];
+      var sx = POS.shardCol.x + POS.shardCol.w / 2, sy = sTarget.y + sTarget.h / 2;
+      animateToken(wl.cx, wl.cy, sx, sy, "var(--push)", 560, function () {
+        state.shardWrites[job.targetShard] = (state.shardWrites[job.targetShard] || 0) + 1;
+        state.feedStore[job.followerId].push({ postId: job.postId, author: job.author, type: "push", ts: job.ts });
+        flashShard(job.targetShard);
+        worker.busy = false;
+        updateBars();
+        renderDiagram();
+      });
+    });
+  }
+
+  function viewFeed(followerId) {
+    var shards = shardLayout(state.numShards);
+    var sTarget = shards[shardOf(followerId)];
+    var sx = POS.shardCol.x + POS.shardCol.w / 2, sy = sTarget.y + sTarget.h / 2;
+    var ag = boxCenter(POS.aggregator);
+    var cs = boxCenter(POS.celebstore);
+    flashShard(shardOf(followerId));
+    flashNode("celebstore");
+    animateToken(sx, sy, ag.x, ag.y, "var(--push)", 500);
+    animateToken(cs.x, cs.y, ag.x, ag.y, "var(--pull)", 500);
+    setTimeout(function () {
+      flashNode("aggregator");
+      var pushItems = (state.feedStore[followerId] || []).slice();
+      var pullItems = state.celebPosts.map(function (p) { return { postId: p.postId, author: p.author, type: "pull", ts: p.ts }; });
+      var merged = pushItems.concat(pullItems).sort(function (a, b) { return b.ts - a.ts; });
+      renderFeedList(merged);
+    }, reduceMotion ? 0 : 540);
+  }
+
+  function renderFeedList(items) {
+    var list = document.getElementById("feed-list");
+    list.innerHTML = "";
+    if (items.length === 0) {
+      var li = document.createElement("li");
+      li.className = "feed-empty";
+      li.textContent = "No posts yet — try posting as Alice or the Celebrity, then view this feed again.";
+      list.appendChild(li);
+      return;
+    }
+    items.forEach(function (it) {
+      var li = document.createElement("li");
+      li.className = "feed-item";
+      var tag = document.createElement("span");
+      tag.className = "feed-tag " + it.type;
+      tag.textContent = it.type.toUpperCase();
+      var author = document.createElement("span");
+      author.className = "feed-author";
+      author.textContent = it.author;
+      var meta = document.createElement("span");
+      meta.className = "feed-meta font-mono";
+      meta.textContent = timeAgo(it.ts) + " · " + it.postId;
+      li.appendChild(tag); li.appendChild(author); li.appendChild(meta);
+      list.appendChild(li);
+    });
+  }
+  function timeAgo(ts) {
+    var s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s < 1) return "just now";
+    if (s < 60) return s + "s ago";
+    return Math.round(s / 60) + "m ago";
+  }
+
+  // ---------- metrics ----------
+  function updateQueueLabel() {
+    document.getElementById("queue-now").textContent = state.queue.length;
+  }
+  function updateDroppedLabel() {
+    var elD = document.getElementById("dropped-now");
+    elD.textContent = state.droppedJobs;
+    elD.classList.toggle("warn", state.droppedJobs > 0);
+  }
+  function updateRateLimitedLabel() {
+    var elR = document.getElementById("ratelimited-now");
+    var total = state.rateLimit.push.blockedCount + state.rateLimit.pull.blockedCount;
+    elR.textContent = total;
+    elR.classList.toggle("critical", total > 0);
+  }
+  function sampleQueue() {
+    state.queueHistory.push(state.queue.length);
+    if (state.queueHistory.length > 40) state.queueHistory.shift();
+    updateQueueLabel();
+    drawSpark();
+  }
+  function drawSpark() {
+    var svgS = document.getElementById("spark");
+    svgS.innerHTML = "";
+    var data = state.queueHistory.length ? state.queueHistory : [0];
+    var max = Math.max(3, state.queueCapacity);
+    var w = 280, h = 56, pad = 4;
+    for (var g = 0; g <= 2; g++) {
+      var gy = pad + (h - pad * 2) * (g / 2);
+      el("line", { class: "grid", x1: 0, y1: gy, x2: w, y2: gy }, svgS);
+    }
+    var capY = h - pad - (state.queueCapacity / max) * (h - pad * 2);
+    el("line", { class: "cap-line", x1: 0, y1: capY, x2: w, y2: capY }, svgS);
+    el("text", { class: "cap-label", x: 2, y: Math.max(9, capY - 3), "text-anchor": "start" }, svgS).textContent = "cap " + state.queueCapacity;
+    var n = data.length;
+    var pts = data.map(function (v, i) {
+      var x = n === 1 ? w : (i / (n - 1)) * w;
+      var y = h - pad - (v / max) * (h - pad * 2);
+      return [x, y];
+    });
+    var line = pts.map(function (p, i) { return (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1); }).join(" ");
+    var area = line + " L" + w + "," + h + " L0," + h + " Z";
+    el("path", { class: "area", d: area }, svgS);
+    el("path", { class: "line", d: line }, svgS);
+    var last = pts[pts.length - 1];
+    el("circle", { class: "dot", cx: last[0], cy: last[1], r: 3 }, svgS);
+  }
+
+  function updateBars() {
+    var wrap = document.getElementById("bars");
+    wrap.innerHTML = "";
+    var max = Math.max(1, Math.max.apply(null, state.shardWrites));
+    var total = state.shardWrites.reduce(function (a, b) { return a + b; }, 0);
+    document.getElementById("shard-total").textContent = total + " total";
+    state.shardWrites.forEach(function (v, i) {
+      var row = document.createElement("div");
+      row.className = "bar-row";
+      var name = document.createElement("span");
+      name.className = "bar-name"; name.textContent = "S" + i;
+      var track = document.createElement("div");
+      track.className = "bar-track";
+      var fill = document.createElement("div");
+      fill.className = "bar-fill";
+      fill.style.width = (v / max * 100) + "%";
+      track.appendChild(fill);
+      var val = document.createElement("span");
+      val.className = "bar-val"; val.textContent = v;
+      row.appendChild(name); row.appendChild(track); row.appendChild(val);
+      wrap.appendChild(row);
+    });
+  }
+
+  function renderFollowerChips() {
+    var wrap = document.getElementById("followers");
+    wrap.innerHTML = "";
+    FOLLOWERS.forEach(function (f) {
+      var chip = document.createElement("span");
+      chip.className = "chip" + (ALICE_FOLLOWERS.has(f.id) ? " alice" : "");
+      chip.innerHTML = f.name + ' <span class="shardtag">S' + shardOf(f.id) + "</span>";
+      wrap.appendChild(chip);
+    });
+  }
+
+  function renderFollowerSelect() {
+    var sel = document.getElementById("follower-select");
+    sel.innerHTML = "";
+    FOLLOWERS.forEach(function (f) {
+      var opt = document.createElement("option");
+      opt.value = f.id;
+      opt.textContent = f.name + " — shard " + shardOf(f.id) + (ALICE_FOLLOWERS.has(f.id) ? "" : " (doesn't follow Alice)");
+      sel.appendChild(opt);
+    });
+  }
+
+  function resetSimulationFor(numWorkers, numShards, queueCapacity, rateLimitCapacity) {
+    state.numWorkers = numWorkers;
+    state.numShards = numShards;
+    state.queueCapacity = queueCapacity;
+    state.queue = [];
+    state.droppedJobs = 0;
+    state.backpressure = false;
+    state.rateLimit = {
+      push: { tokens: rateLimitCapacity, capacity: rateLimitCapacity, blockedCount: 0 },
+      pull: { tokens: rateLimitCapacity, capacity: rateLimitCapacity, blockedCount: 0 }
+    };
+    state.workers = [];
+    for (var w = 0; w < numWorkers; w++) state.workers.push({ id: w, busy: false });
+    FOLLOWERS.forEach(function (f) { state.feedStore[f.id] = []; });
+    resetShardWrites();
+    renderDiagram();
+    renderFollowerChips();
+    renderFollowerSelect();
+    updateQueueLabel();
+    updateDroppedLabel();
+    updateRateLimitedLabel();
+    updateBars();
+    drawSpark();
+    renderFeedList([]);
+  }
+
+  // ---------- wire up ----------
+  document.getElementById("btn-alice").addEventListener("click", postAsAlice);
+  document.getElementById("btn-celeb").addEventListener("click", postAsCelebrity);
+  document.getElementById("btn-burst").addEventListener("click", simulateBurst);
+  document.getElementById("btn-view").addEventListener("click", function () {
+    var id = parseInt(document.getElementById("follower-select").value, 10);
+    viewFeed(id);
+  });
+
+  var workersRange = document.getElementById("workers-range");
+  var shardsRange = document.getElementById("shards-range");
+  var capacityRange = document.getElementById("capacity-range");
+  var rateLimitRange = document.getElementById("ratelimit-range");
+  workersRange.addEventListener("change", function () {
+    document.getElementById("workers-val").textContent = workersRange.value;
+    toast("Rebuilt with " + workersRange.value + " workers — push state reset.");
+    resetSimulationFor(parseInt(workersRange.value, 10), state.numShards, state.queueCapacity, state.rateLimit.push.capacity);
+  });
+  workersRange.addEventListener("input", function () {
+    document.getElementById("workers-val").textContent = workersRange.value;
+  });
+  shardsRange.addEventListener("change", function () {
+    document.getElementById("shards-val").textContent = shardsRange.value;
+    toast("Resharded to " + shardsRange.value + " shards — followers remapped, write counts reset.");
+    resetSimulationFor(state.numWorkers, parseInt(shardsRange.value, 10), state.queueCapacity, state.rateLimit.push.capacity);
+  });
+  shardsRange.addEventListener("input", function () {
+    document.getElementById("shards-val").textContent = shardsRange.value;
+  });
+  capacityRange.addEventListener("change", function () {
+    document.getElementById("capacity-val").textContent = capacityRange.value;
+    toast("Queue capacity set to " + capacityRange.value + " — state reset.");
+    resetSimulationFor(state.numWorkers, state.numShards, parseInt(capacityRange.value, 10), state.rateLimit.push.capacity);
+  });
+  capacityRange.addEventListener("input", function () {
+    document.getElementById("capacity-val").textContent = capacityRange.value;
+  });
+  rateLimitRange.addEventListener("change", function () {
+    document.getElementById("ratelimit-val").textContent = rateLimitRange.value;
+    toast("Rate limit set to " + rateLimitRange.value + " tokens — state reset.");
+    resetSimulationFor(state.numWorkers, state.numShards, state.queueCapacity, parseInt(rateLimitRange.value, 10));
+  });
+  rateLimitRange.addEventListener("input", function () {
+    document.getElementById("ratelimit-val").textContent = rateLimitRange.value;
+  });
+
+  renderDiagram();
+  renderFollowerChips();
+  renderFollowerSelect();
+  updateBars();
+  updateDroppedLabel();
+  updateRateLimitedLabel();
+  setInterval(workerTick, 380);
+  setInterval(sampleQueue, 300);
+  setInterval(function () {
+    state.rateLimit.push.tokens = Math.min(state.rateLimit.push.capacity, state.rateLimit.push.tokens + 1);
+    state.rateLimit.pull.tokens = Math.min(state.rateLimit.pull.capacity, state.rateLimit.pull.tokens + 1);
+    renderDiagram();
+  }, 3000);
+  drawSpark();
+})();
+</script>
+</body>
+</html>
